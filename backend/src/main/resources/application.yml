@@ -1,0 +1,68 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: air-ground-inspection
+
+  # MongoDB 配置
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/agi
+      auto-index-creation: true
+
+  # Kafka 配置
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: agi-consumer-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: batch
+      missing-topics-fatal: false
+
+# HDFS 配置
+hdfs:
+  uri: hdfs://localhost:9000
+  user: root
+
+# Elasticsearch 配置
+elasticsearch:
+  uris: http://localhost:9200
+  username: elastic
+  password: ""
+
+# 设备仿真配置
+simulator:
+  enabled: true
+  # 仿真设备数量
+  drone-count: 3
+  robot-dog-count: 2
+  # 心跳间隔(毫秒)
+  heartbeat-interval: 30000
+  # 数据上报间隔(毫秒)
+  data-interval: 15000
+  # 告警模拟间隔(毫秒)
+  alert-interval: 60000
+
+# Kafka Topic 定义
+kafka:
+  topics:
+    device-register: device-register
+    device-heartbeat: device-heartbeat
+    device-data: device-data
+    device-alert: device-alert
+    task-dispatch: task-dispatch
+
+logging:
+  level:
+    com.agi: INFO
+    org.apache.hadoop: WARN
+    org.elasticsearch: WARN
