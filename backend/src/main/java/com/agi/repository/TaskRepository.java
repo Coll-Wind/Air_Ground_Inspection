@@ -18,6 +18,9 @@ public interface TaskRepository extends MongoRepository<InspectionTask, String> 
 
     List<InspectionTask> findByStatus(String status);
 
+    /** 查询设备当前待执行/执行中的任务(按创建时间先后,仿真器取最早一个执行) */
+    List<InspectionTask> findByDeviceCodeAndStatusInOrderByCreateTimeAsc(String deviceCode, List<String> statuses);
+
     // 分页重载
     Page<InspectionTask> findByDeviceCode(String deviceCode, Pageable pageable);
 

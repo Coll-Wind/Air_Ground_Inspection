@@ -8,6 +8,7 @@
       <div class="legend-item"><span class="dot offline"></span>离线</div>
       <div class="legend-item"><span class="alert-mark"></span>待处理告警</div>
       <div class="legend-item"><span class="track-line"></span>巡检轨迹</div>
+      <div class="legend-item"><span class="task-line"></span>任务路线</div>
     </div>
   </div>
 </template>
@@ -16,7 +17,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { deviceApi, alertApi, recordApi } from '../api'
+import { deviceApi, alertApi, recordApi, taskApi } from '../api'
 
 const mapRef = ref()
 
@@ -25,6 +26,10 @@ let map: L.Map
 const deviceMarkers = new Map<string, L.Marker>()
 const trackLines = new Map<string, L.Polyline>()
 const alertMarkers = new Map<string, L.Marker>()
+// 任务路线:目标旗帜 + 设备→目标虚线
+const targetMarkers = new Map<string, L.Marker>()
+const taskLines = new Map<string, L.Polyline>()
+let activeTasks: any[] = []
 let timers: number[] = []
 let fitDone = false
 
@@ -90,6 +95,8 @@ async function loadDevices() {
       map.fitBounds(L.latLngBounds(bounds).pad(0.4))
       fitDone = true
     }
+    // 设备位置更新后,同步刷新任务路线的起点
+    activeTasks.forEach(updateTaskLine)
   } catch {}
 }
 
@@ -155,6 +162,61 @@ async function loadAlerts() {
 const typeLabel = (t: string) =>
   ({ OVERHEAT: '过热', INTRUSION: '入侵', SMOKE: '烟雾', LOW_BATTERY: '低电量', DEVICE_FAULT: '设备故障' }[t] || t)
 
+/** 拉取待执行/执行中的任务,绘制目标点旗帜与 设备→目标 路线虚线 */
+async function loadTasks() {
+  try {
+    const res = await taskApi.list({ page: 1, size: 100 })
+    activeTasks = (res.data.list || []).filter(
+      (t: any) => (t.status === 'PENDING' || t.status === 'RUNNING') && t.latitude != null && t.longitude != null
+    )
+    const codes = new Set(activeTasks.map((t: any) => t.taskCode))
+    // 清理已完成/已取消任务的标记与路线
+    for (const [code, m] of targetMarkers) if (!codes.has(code)) { m.remove(); targetMarkers.delete(code) }
+    for (const [code, l] of taskLines) if (!codes.has(code)) { l.remove(); taskLines.delete(code) }
+    for (const t of activeTasks) {
+      let m = targetMarkers.get(t.taskCode)
+      if (!m) {
+        m = L.marker([t.latitude, t.longitude], {
+          icon: L.divIcon({
+            className: '',
+            html: `<div class="target-marker">📍</div>`,
+            iconSize: [26, 26],
+            iconAnchor: [13, 22],
+            popupAnchor: [0, -18]
+          })
+        }).bindPopup(`
+          <div class="popup">
+            <b>任务目标</b> <span class="muted">(${t.taskCode})</span><br/>
+            设备:${t.deviceCode}<br/>
+            类型:${typeTaskLabel(t.taskType)} · ${t.area || '-'}<br/>
+            ${t.description || ''}
+          </div>`)
+        m.addTo(map)
+        targetMarkers.set(t.taskCode, m)
+      }
+      updateTaskLine(t)
+    }
+  } catch {}
+}
+
+const typeTaskLabel = (t: string) => ({ PATROL: '巡逻', INSPECT: '巡检', ALERT_CHECK: '告警复核' }[t] || t)
+
+/** 更新(或创建)某任务的 设备当前位置→目标 路线虚线 */
+function updateTaskLine(t: any) {
+  const dm = deviceMarkers.get(t.deviceCode)
+  if (!dm) return
+  const from = dm.getLatLng()
+  const latlngs: L.LatLngExpression[] = [[from.lat, from.lng], [t.latitude, t.longitude]]
+  let line = taskLines.get(t.taskCode)
+  if (line) {
+    line.setLatLngs(latlngs)
+  } else {
+    line = L.polyline(latlngs, { color: '#f59e0b', weight: 2.5, opacity: 0.9, dashArray: '6 8' })
+    line.addTo(map)
+    taskLines.set(t.taskCode, line)
+  }
+}
+
 onMounted(() => {
   map = L.map(mapRef.value, { zoomControl: true, attributionControl: false })
   // OSM 标准瓦片;若加载慢可换高德瓦片(无需 key):
@@ -165,10 +227,11 @@ onMounted(() => {
   }).addTo(map)
   map.setView([39.9, 116.4], 14)
 
-  loadDevices().then(() => { loadTracks(); loadAlerts() })
+  loadDevices().then(() => { loadTracks(); loadAlerts(); loadTasks() })
   timers.push(window.setInterval(loadDevices, 5000))
   timers.push(window.setInterval(loadTracks, 15000))
   timers.push(window.setInterval(loadAlerts, 8000))
+  timers.push(window.setInterval(loadTasks, 8000))
 })
 
 onUnmounted(() => {
@@ -194,6 +257,10 @@ onUnmounted(() => {
 }
 .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .legend-item .track-line { display: inline-block; width: 20px; height: 3px; background: #2563eb; border-radius: 2px; }
+.legend-item .task-line {
+  display: inline-block; width: 20px; height: 0;
+  border-top: 2px dashed #f59e0b;
+}
 .legend-item .alert-mark {
   display: inline-block; width: 10px; height: 10px; border-radius: 50%;
   background: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.3);
@@ -228,6 +295,14 @@ onUnmounted(() => {
 :global(@keyframes pulse) {
   0% { transform: scale(0.6); opacity: 1; }
   100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* 任务目标 marker(旗帜) */
+:global(.target-marker) {
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
 }
 
 /* 弹窗内容 */

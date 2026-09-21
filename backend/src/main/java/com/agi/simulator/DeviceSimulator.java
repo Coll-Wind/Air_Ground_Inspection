@@ -2,6 +2,8 @@ package com.agi.simulator;
 
 import com.agi.hdfs.HdfsService;
 import com.agi.kafka.KafkaProducerService;
+import com.agi.model.InspectionTask;
+import com.agi.repository.TaskRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +29,8 @@ public class DeviceSimulator {
     private KafkaProducerService kafkaProducer;
     @Autowired
     private HdfsService hdfsService;
+    @Autowired
+    private TaskRepository taskRepository;
 
     @Value("${simulator.enabled:true}")
     private boolean enabled;
@@ -69,8 +73,8 @@ public class DeviceSimulator {
 
     /**
      * 心跳上报:每 30 秒所有设备发送心跳
-     * 电量逻辑:低于 15% 返航充电(充电中位置/巡检静止),充到 80% 恢复巡逻;
-     * 设备故障期间:原地驻留检修,状态上报 FAULT,期满自愈恢复 ONLINE
+     * 移动优先级:故障驻留(静止) > 充电(静止) > 执行任务(朝目标直线推进) > 随机游走
+     * 任务执行:取该设备最早的待执行/执行中任务,向目标点推进;到达后任务自动完成并上报一条巡检数据
      */
     @Scheduled(fixedDelayString = "${simulator.heartbeat-interval:30000}", initialDelay = 10000)
     public void sendHeartbeats() {
@@ -87,8 +91,11 @@ public class DeviceSimulator {
                 ds.battery = Math.max(5, ds.battery - random.nextInt(3));
                 if (ds.battery <= 15) ds.charging = true;
             }
-            // 位置仅在正常巡逻时移动(充电/故障驻留时静止)
-            if (!fault && !ds.charging) {
+
+            if (fault || ds.charging) {
+                // 故障驻留/充电:位置静止
+            } else if (!executeTask(ds)) {
+                // 无任务:位置小幅随机游走
                 ds.latitude += (random.nextDouble() - 0.5) * 0.001;
                 ds.longitude += (random.nextDouble() - 0.5) * 0.001;
             }
@@ -100,6 +107,58 @@ public class DeviceSimulator {
             kafkaProducer.sendHeartbeat(msg);
         }
         log.debug("批量心跳上报完成,共 {} 台设备", devices.size());
+    }
+
+    /**
+     * 执行任务:取设备最早的待执行/执行中任务,向目标点直线推进(航点模式)
+     *
+     * @return true 表示本次心跳在执行任务(位置已更新);false 表示无任务
+     */
+    private boolean executeTask(DeviceState ds) {
+        List<InspectionTask> active = taskRepository.findByDeviceCodeAndStatusInOrderByCreateTimeAsc(
+                ds.deviceCode, List.of("PENDING", "RUNNING"));
+        if (active.isEmpty()) return false;
+        InspectionTask task = active.get(0);
+        if (task.getLatitude() == null || task.getLongitude() == null) return false;
+
+        double step = 0.001; // 每心跳推进约 110 米(30s 一个心跳 ≈ 13km/h,贴近小型无人机巡逻速度)
+        double dLat = task.getLatitude() - ds.latitude;
+        double dLon = task.getLongitude() - ds.longitude;
+        double dist = Math.sqrt(dLat * dLat + dLon * dLon);
+
+        if (dist <= step) {
+            // 到达目标区域:完成任务并上报一条到达巡检数据
+            ds.latitude = task.getLatitude();
+            ds.longitude = task.getLongitude();
+            task.setStatus("COMPLETED");
+            task.setCompleteTime(java.time.LocalDateTime.now());
+            taskRepository.save(task);
+            log.info("设备 {} 到达任务目标区域,任务 {} 自动完成", ds.deviceCode, task.getTaskCode());
+            reportArrival(ds, task);
+        } else {
+            ds.latitude += dLat / dist * step;
+            ds.longitude += dLon / dist * step;
+        }
+        return true;
+    }
+
+    /** 到达目标区域后,通过 Kafka 上报一条巡检数据(走正常消费链路落库/HDFS) */
+    private void reportArrival(DeviceState ds, InspectionTask task) {
+        try {
+            Map<String, Object> msg = baseMessage(ds);
+            String payload = String.format("{\"taskId\":\"%s\",\"area\":\"%s\",\"event\":\"ARRIVED\"}",
+                    task.getTaskCode(), task.getArea() == null ? "" : task.getArea().replace("\"", "'"));
+            msg.put("payload", payload);
+            try {
+                String imagePath = uploadMockImage(ds.deviceCode);
+                msg.put("imagePath", imagePath);
+            } catch (Exception e) {
+                msg.put("imagePath", "");
+            }
+            kafkaProducer.sendDeviceData(msg);
+        } catch (Exception e) {
+            log.warn("到达上报失败: {}", e.getMessage());
+        }
     }
 
     /**

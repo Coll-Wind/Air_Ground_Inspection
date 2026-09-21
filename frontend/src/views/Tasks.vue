@@ -22,11 +22,10 @@
         <el-form-item label="区域">
           <el-input v-model="form.area" placeholder="如:A区围墙" style="width:160px" />
         </el-form-item>
-        <el-form-item label="纬度">
-          <el-input v-model.number="form.latitude" type="number" style="width:120px" />
-        </el-form-item>
-        <el-form-item label="经度">
-          <el-input v-model.number="form.longitude" type="number" style="width:120px" />
+        <el-form-item label="目标坐标">
+          <el-input v-model.number="form.latitude" type="number" placeholder="纬度" style="width:110px" />
+          <el-input v-model.number="form.longitude" type="number" placeholder="经度" style="width:110px;margin-left:4px" />
+          <el-button style="margin-left:8px" @click="openPicker">地图选点</el-button>
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" style="width:200px" />
@@ -36,6 +35,18 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <!-- 地图选点弹窗 -->
+    <el-dialog v-model="pickVisible" title="地图选点 - 点击地图选择任务目标位置" width="720px">
+      <div ref="pickMapRef" class="pick-map"></div>
+      <div class="pick-bar">
+        <span>当前选中:纬度 <b>{{ picked.lat.toFixed(6) }}</b>,经度 <b>{{ picked.lon.toFixed(6) }}</b></span>
+        <div>
+          <el-button @click="pickVisible = false">取消</el-button>
+          <el-button type="primary" @click="confirmPick">确定选点</el-button>
+        </div>
+      </div>
+    </el-dialog>
 
     <el-card shadow="hover">
       <template #header><span>任务列表</span></template>
@@ -73,7 +84,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { taskApi, deviceApi } from '../api'
 import { ElMessage } from 'element-plus'
 
@@ -124,10 +137,62 @@ const complete = async (code: string) => {
   }
 }
 
+// ---------- 地图选点 ----------
+const pickVisible = ref(false)
+const pickMapRef = ref()
+let pickMap: L.Map | null = null
+let pickMarker: L.Marker | null = null
+const picked = ref({ lat: 39.9042, lon: 116.4074 })
+
+const placePickMarker = () => {
+  if (!pickMap) return
+  const ll: L.LatLngExpression = [picked.value.lat, picked.value.lon]
+  if (pickMarker) pickMarker.setLatLng(ll)
+  else pickMarker = L.marker(ll).addTo(pickMap)
+}
+
+const openPicker = () => {
+  picked.value = { lat: form.value.latitude, lon: form.value.longitude }
+  pickVisible.value = true
+  nextTick(() => {
+    if (!pickMap) {
+      pickMap = L.map(pickMapRef.value, { attributionControl: false })
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { subdomains: 'abc', maxZoom: 19 }).addTo(pickMap)
+      pickMap.on('click', (e: L.LeafletMouseEvent) => {
+        picked.value = { lat: +e.latlng.lat.toFixed(6), lon: +e.latlng.lng.toFixed(6) }
+        placePickMarker()
+      })
+    }
+    // 弹窗内地图尺寸变化后需要重算
+    setTimeout(() => pickMap?.invalidateSize(), 150)
+    pickMap.setView([picked.value.lat, picked.value.lon], 15)
+    placePickMarker()
+  })
+}
+
+const confirmPick = () => {
+  form.value.latitude = picked.value.lat
+  form.value.longitude = picked.value.lon
+  pickVisible.value = false
+  ElMessage.success('已选择目标坐标')
+}
+
 onMounted(() => {
   loadDevices()
   loadTasks()
   refreshTimer = window.setInterval(loadTasks, 5000)
 })
-onUnmounted(() => window.clearInterval(refreshTimer))
+onUnmounted(() => {
+  window.clearInterval(refreshTimer)
+  pickMap?.remove()
+  pickMap = null
+})
 </script>
+
+<style scoped>
+.pick-map { height: 420px; border-radius: 6px; z-index: 0; }
+.pick-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 12px; font-size: 14px; color: #334155;
+}
+</style>
