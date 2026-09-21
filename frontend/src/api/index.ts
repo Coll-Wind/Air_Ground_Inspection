@@ -59,7 +59,8 @@ export const alertApi = {
   geoSearch: (params: any) => http.get('/alerts/geo-search', { params }),
   aggregate: () => http.get('/alerts/aggregate'),
   stats: () => http.get('/alerts/stats'),
-  updateStatus: (id: string, status: string) => http.put(`/alerts/${id}/status`, null, { params: { status } })
+  updateStatus: (id: string, status: string, handler?: string, remark?: string) =>
+    http.put(`/alerts/${id}/status`, null, { params: { status, handler, remark } })
 }
 
 // 巡检记录 API(列表接口返回 { list, total })

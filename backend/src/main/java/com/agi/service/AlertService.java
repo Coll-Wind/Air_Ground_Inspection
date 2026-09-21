@@ -61,11 +61,14 @@ public class AlertService {
     }
 
     /**
-     * 处理告警(更新状态)
+     * 处理告警(更新状态,记录处理人/备注/时间)
      */
-    public Alert updateStatus(String id, String status) {
+    public Alert updateStatus(String id, String status, String handler, String remark) {
         return alertRepository.findById(id).map(alert -> {
             alert.setStatus(status);
+            if (handler != null && !handler.isEmpty()) alert.setHandler(handler);
+            if (remark != null && !remark.isEmpty()) alert.setRemark(remark);
+            alert.setHandleTime(java.time.LocalDateTime.now());
             return alertRepository.save(alert);
         }).orElse(null);
     }

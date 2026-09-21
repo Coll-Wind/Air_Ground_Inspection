@@ -46,6 +46,15 @@ public class Alert {
     /** 告警时间 */
     private LocalDateTime alertTime;
 
+    /** 处理人(处理时记录) */
+    private String handler;
+
+    /** 处理备注/措施 */
+    private String remark;
+
+    /** 处理时间 */
+    private LocalDateTime handleTime;
+
     /** 关联巡检图片在 HDFS 的路径 */
     private String imagePath;
 }

@@ -60,10 +60,14 @@ public class AlertController {
         return ResponseEntity.ok(alertService.aggregateByType());
     }
 
-    /** 更新告警处理状态 */
+    /** 更新告警处理状态(可记录处理人与备注) */
     @PutMapping("/{id}/status")
-    public ResponseEntity<Alert> updateStatus(@PathVariable String id, @RequestParam String status) {
-        Alert alert = alertService.updateStatus(id, status);
+    public ResponseEntity<Alert> updateStatus(
+            @PathVariable String id,
+            @RequestParam String status,
+            @RequestParam(required = false) String handler,
+            @RequestParam(required = false) String remark) {
+        Alert alert = alertService.updateStatus(id, status, handler, remark);
         return alert != null ? ResponseEntity.ok(alert) : ResponseEntity.notFound().build();
     }
 
