@@ -58,8 +58,8 @@ simulator:
   heartbeat-interval: 30000
   # 数据上报间隔(毫秒)
   data-interval: 15000
-  # 告警模拟间隔(毫秒)
-  alert-interval: 60000
+  # 告警模拟间隔(毫秒)——演示节奏 3 分钟一条,避免告警刷屏失真
+  alert-interval: 180000
 
 # Kafka Topic 定义
 kafka:
