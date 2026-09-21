@@ -7,6 +7,16 @@
       <el-col :span="6"><el-card shadow="hover" class="stat-card info"><el-statistic title="告警总数" :value="alertStats.total" /></el-card></el-col>
     </el-row>
 
+    <el-card shadow="hover" style="margin-top:16px">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span>设备实时分布</span>
+          <span style="font-size:12px;color:#909399">点击标记查看设备/告警详情,每 5 秒自动刷新</span>
+        </div>
+      </template>
+      <DeviceMap />
+    </el-card>
+
     <el-row :gutter="16" style="margin-top:16px">
       <el-col :span="12">
         <el-card shadow="hover">
@@ -44,6 +54,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
 import { deviceApi, alertApi } from '../api'
+import DeviceMap from '../components/DeviceMap.vue'
 
 const deviceStats = ref({ total: 0, online: 0, offline: 0, fault: 0 })
 const alertStats = ref({ total: 0, pending: 0, processed: 0 })
