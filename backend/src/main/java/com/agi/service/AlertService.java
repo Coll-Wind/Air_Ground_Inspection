@@ -3,6 +3,7 @@ package com.agi.service;
 import com.agi.es.EsService;
 import com.agi.model.Alert;
 import com.agi.repository.AlertRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+@Slf4j
 @Service
 public class AlertService {
 
@@ -79,16 +81,25 @@ public class AlertService {
     }
 
     /**
-     * 处理告警(更新状态,记录处理人/备注/时间)
+     * 处理告警(更新状态,记录处理人/备注/时间),并同步更新 ES 保证双写一致
      */
     public Alert updateStatus(String id, String status, String handler, String remark) {
-        return alertRepository.findById(id).map(alert -> {
-            alert.setStatus(status);
-            if (handler != null && !handler.isEmpty()) alert.setHandler(handler);
-            if (remark != null && !remark.isEmpty()) alert.setRemark(remark);
-            alert.setHandleTime(java.time.LocalDateTime.now());
-            return alertRepository.save(alert);
+        Alert alert = alertRepository.findById(id).map(a -> {
+            a.setStatus(status);
+            if (handler != null && !handler.isEmpty()) a.setHandler(handler);
+            if (remark != null && !remark.isEmpty()) a.setRemark(remark);
+            a.setHandleTime(java.time.LocalDateTime.now());
+            return alertRepository.save(a);
         }).orElse(null);
+        if (alert != null) {
+            try {
+                esService.updateAlertStatus(id, status, alert.getHandler(), alert.getRemark(),
+                        alert.getHandleTime() == null ? null : alert.getHandleTime().toString());
+            } catch (Exception e) {
+                log.warn("告警 {} 处理状态同步 ES 失败: {}", alert.getAlertCode(), e.getMessage());
+            }
+        }
+        return alert;
     }
 
     public long count() {

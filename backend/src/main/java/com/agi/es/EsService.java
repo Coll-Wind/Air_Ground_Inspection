@@ -50,6 +50,18 @@ public class EsService {
     }
 
     /**
+     * 同步更新 ES 中告警的处理状态/处理人/备注/处理时间(按 Mongo 文档 id)
+     */
+    public void updateAlertStatus(String id, String status, String handler, String remark, String handleTime) throws IOException {
+        Map<String, Object> doc = new HashMap<>();
+        doc.put("status", status);
+        if (handler != null) doc.put("handler", handler);
+        if (remark != null) doc.put("remark", remark);
+        if (handleTime != null) doc.put("handleTime", handleTime);
+        esClient.update(u -> u.index(ALERT_INDEX).id(id).doc(doc), Map.class);
+    }
+
+    /**
      * 索引一条告警
      */
     public String indexAlert(Alert alert) throws IOException {

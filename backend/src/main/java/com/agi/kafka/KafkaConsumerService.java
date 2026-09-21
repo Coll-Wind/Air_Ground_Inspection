@@ -83,6 +83,7 @@ public class KafkaConsumerService {
 
     /**
      * 消费心跳消息 -> 更新设备状态与最后心跳时间
+     * 设备状态以设备自报为准(FAULT 表示故障驻留检修中,不可强制置回 ONLINE)
      */
     @KafkaListener(topics = "${kafka.topics.device-heartbeat}", groupId = "${spring.kafka.consumer.group-id}")
     public void consumeHeartbeat(String message) {
@@ -90,15 +91,17 @@ public class KafkaConsumerService {
         if (msg == null) return;
         try {
             String deviceCode = (String) msg.get("deviceCode");
+            Object statusObj = msg.get("status");
+            String status = statusObj == null ? "ONLINE" : statusObj.toString();
             deviceRepository.findByDeviceCode(deviceCode).ifPresent(device -> {
-                device.setStatus("ONLINE");
+                device.setStatus(status);
                 device.setBattery(toInt(msg.get("battery")));
                 device.setLatitude(toDouble(msg.get("latitude")));
                 device.setLongitude(toDouble(msg.get("longitude")));
                 device.setLastHeartbeat(LocalDateTime.now());
                 deviceRepository.save(device);
             });
-            log.debug("心跳更新: {}", deviceCode);
+            log.debug("心跳更新: {} 状态 {}", deviceCode, status);
         } catch (Exception e) {
             log.error("消费心跳消息失败: {}", e.getMessage(), e);
         }
@@ -151,11 +154,26 @@ public class KafkaConsumerService {
             alert.setAlertTime(LocalDateTime.now());
             alertRepository.save(alert);
 
-            // 写入 Elasticsearch
+            // 设备故障告警:立即同步设备台账状态为 FAULT(与告警自洽)
+            if ("DEVICE_FAULT".equals(alert.getAlertType())) {
+                deviceRepository.findByDeviceCode(alert.getDeviceCode()).ifPresent(d -> {
+                    d.setStatus("FAULT");
+                    d.setLastHeartbeat(LocalDateTime.now());
+                    deviceRepository.save(d);
+                });
+            }
+
+            // 写入 Elasticsearch(失败重试一次,保证检索数据尽量不丢)
             try {
                 esService.indexAlert(alert);
             } catch (Exception esEx) {
-                log.warn("告警写入 ES 失败: {}", esEx.getMessage());
+                log.warn("告警写入 ES 失败,准备重试: {}", esEx.getMessage());
+                try {
+                    Thread.sleep(500);
+                    esService.indexAlert(alert);
+                } catch (Exception retryEx) {
+                    log.warn("告警写入 ES 重试仍失败: {} - {}", alert.getAlertCode(), retryEx.getMessage());
+                }
             }
 
             // WebSocket 实时推送到前端

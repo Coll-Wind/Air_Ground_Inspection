@@ -46,7 +46,6 @@ public class DeviceSimulator {
     private static final double BASE_LON = 116.4074;
 
     private static final String[] ALERT_TYPES = {"OVERHEAT", "INTRUSION", "SMOKE", "LOW_BATTERY", "DEVICE_FAULT"};
-    private static final String[] ALERT_LEVELS = {"HIGH", "MEDIUM", "LOW"};
 
     @PostConstruct
     public void init() {
@@ -70,19 +69,34 @@ public class DeviceSimulator {
 
     /**
      * 心跳上报:每 30 秒所有设备发送心跳
+     * 电量逻辑:低于 15% 返航充电(充电中位置/巡检静止),充到 80% 恢复巡逻;
+     * 设备故障期间:原地驻留检修,状态上报 FAULT,期满自愈恢复 ONLINE
      */
     @Scheduled(fixedDelayString = "${simulator.heartbeat-interval:30000}", initialDelay = 10000)
     public void sendHeartbeats() {
         if (!enabled) return;
+        long now = System.currentTimeMillis();
         for (DeviceState ds : devices.values()) {
-            // 电量缓慢下降
-            ds.battery = Math.max(5, ds.battery - random.nextInt(3));
-            // 位置小幅移动
-            ds.latitude += (random.nextDouble() - 0.5) * 0.001;
-            ds.longitude += (random.nextDouble() - 0.5) * 0.001;
+            boolean fault = now < ds.faultUntil;
+            if (!fault && ds.charging) {
+                // 充电中:电量回升,充到 80% 重新出动
+                ds.battery = Math.min(100, ds.battery + 5);
+                if (ds.battery >= 80) ds.charging = false;
+            } else if (!fault) {
+                // 巡逻中:电量缓慢下降,低于 15% 返航充电
+                ds.battery = Math.max(5, ds.battery - random.nextInt(3));
+                if (ds.battery <= 15) ds.charging = true;
+            }
+            // 位置仅在正常巡逻时移动(充电/故障驻留时静止)
+            if (!fault && !ds.charging) {
+                ds.latitude += (random.nextDouble() - 0.5) * 0.001;
+                ds.longitude += (random.nextDouble() - 0.5) * 0.001;
+            }
 
             Map<String, Object> msg = baseMessage(ds);
             msg.put("battery", ds.battery);
+            // 设备自主上报健康状态:故障时 FAULT(心跳不断连,仅功能受限),平时 ONLINE
+            msg.put("status", fault ? "FAULT" : "ONLINE");
             kafkaProducer.sendHeartbeat(msg);
         }
         log.debug("批量心跳上报完成,共 {} 台设备", devices.size());
@@ -90,11 +104,14 @@ public class DeviceSimulator {
 
     /**
      * 巡检数据上报:每 15 秒各设备上报一次巡检数据
+     * 充电中/故障驻留的设备暂停巡检(合理:不在岗)
      */
     @Scheduled(fixedDelayString = "${simulator.data-interval:15000}", initialDelay = 5000)
     public void sendInspectionData() {
         if (!enabled) return;
+        long now = System.currentTimeMillis();
         for (DeviceState ds : devices.values()) {
+            if (now < ds.faultUntil || ds.charging) continue;
             Map<String, Object> msg = baseMessage(ds);
             // 无人机:高度、航拍图片;机器狗:红外温度、传感器
             String payload;
@@ -129,12 +146,33 @@ public class DeviceSimulator {
         List<DeviceState> list = new ArrayList<>(devices.values());
         DeviceState ds = list.get(random.nextInt(list.size()));
 
-        // 告警类型随机,但必须与设备真实状态自洽:电量 > 30% 时不会触发低电量告警
-        String alertType = ALERT_TYPES[random.nextInt(ALERT_TYPES.length)];
-        while ("LOW_BATTERY".equals(alertType) && ds.battery > 30) {
-            alertType = ALERT_TYPES[random.nextInt(ALERT_TYPES.length)];
+        // 告警类型随机,但必须与设备真实状态自洽:
+        // 1) 电量 > 30% 不会触发低电量告警;2) 故障驻留中不再重复故障告警;
+        // 3) 充电/故障中的设备不产生业务类告警(入侵/烟雾/过热)
+        long now = System.currentTimeMillis();
+        String alertType = null;
+        for (int i = 0; i < 20; i++) {
+            String t = ALERT_TYPES[random.nextInt(ALERT_TYPES.length)];
+            boolean fault = now < ds.faultUntil;
+            if ("DEVICE_FAULT".equals(t) && fault) continue;           // 已在故障中,不重复
+            if ("LOW_BATTERY".equals(t) && ds.battery > 30) continue;  // 电量充足不报低电
+            if ((ds.charging || fault)
+                    && !"DEVICE_FAULT".equals(t) && !"LOW_BATTERY".equals(t)) continue; // 不在岗不报业务告警
+            alertType = t;
+            break;
         }
-        String level = "LOW_BATTERY".equals(alertType) ? "MEDIUM" : ALERT_LEVELS[random.nextInt(ALERT_LEVELS.length)];
+        if (alertType == null) return; // 本轮无可合理产生的告警,跳过
+
+        // 告警级别由类型决定(严重安全事件直接高危,设备健康类为中危),保证数据自洽
+        String level = switch (alertType) {
+            case "INTRUSION", "SMOKE" -> "HIGH";
+            case "OVERHEAT", "DEVICE_FAULT", "LOW_BATTERY" -> "MEDIUM";
+            default -> "LOW";
+        };
+        // 设备故障告警:进入 2 分钟故障驻留(原地检修,暂停巡逻),期满自愈
+        if ("DEVICE_FAULT".equals(alertType)) {
+            ds.faultUntil = System.currentTimeMillis() + 120_000;
+        }
 
         Map<String, Object> msg = baseMessage(ds);
         msg.put("alertType", alertType);
@@ -206,6 +244,8 @@ public class DeviceSimulator {
         double latitude;
         double longitude;
         int battery;
+        boolean charging;   // 是否返航充电中
+        long faultUntil;    // 故障驻留截止时间戳(0 = 正常)
 
         DeviceState(String deviceCode, String deviceType, String model, double latitude, double longitude, int battery) {
             this.deviceCode = deviceCode;

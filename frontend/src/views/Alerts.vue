@@ -212,13 +212,26 @@ const openDetail = (row: any) => {
 }
 
 // WebSocket 实时告警(断线自动重连)
+// 判断实时新告警是否匹配当前筛选条件(仅让符合条件的新告警进入列表,保持列表与筛选一致)
+const matchFilter = (a: any) => {
+  if (filters.type && a.alertType !== filters.type) return false
+  if (filters.level && a.level !== filters.level) return false
+  if (filters.status && a.status !== filters.status) return false
+  if (filters.deviceCode && !a.deviceCode?.includes(filters.deviceCode)) return false
+  if (filters.alertCode && !a.alertCode?.includes(filters.alertCode)) return false
+  if (filters.keyword && !a.description?.includes(filters.keyword)) return false
+  return true
+}
+
 const connectWs = () => {
-  ws = new WebSocket(`ws://${location.host}/ws/alerts`)
+  ws = new WebSocket(`ws://${location.host}/ws/alerts?token=${localStorage.getItem('token')}`)
   ws.onmessage = (e) => {
     const alert = JSON.parse(e.data)
-    alerts.value.unshift(alert)
-    total.value++
     ElMessage.warning(`新告警: ${typeLabel(alert.alertType)} - ${alert.deviceCode}`)
+    if (matchFilter(alert)) {
+      alerts.value.unshift(alert)
+      total.value++
+    }
   }
   ws.onclose = () => { wsRetry = window.setTimeout(connectWs, 3000) }
 }

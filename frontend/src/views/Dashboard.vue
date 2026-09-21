@@ -105,7 +105,7 @@ let closed = false
 
 // WebSocket 实时告警推送(断线自动重连)
 const connectWs = () => {
-  ws = new WebSocket(`ws://${location.host}/ws/alerts`)
+  ws = new WebSocket(`ws://${location.host}/ws/alerts?token=${localStorage.getItem('token')}`)
   ws.onmessage = (e) => {
     const alert = JSON.parse(e.data)
     recentAlerts.value.unshift(alert)

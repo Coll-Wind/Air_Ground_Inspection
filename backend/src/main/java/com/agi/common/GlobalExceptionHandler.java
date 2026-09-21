@@ -20,6 +20,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
     }
 
+    /** 缺少必填参数/请求体 → 400 */
+    @ExceptionHandler({org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<Map<String, Object>> handleBadInput(Exception e) {
+        return ResponseEntity.badRequest().body(Map.of("error", "请求参数缺失或格式错误"));
+    }
+
     /** 其余未知异常 → 500,记录日志但不暴露堆栈 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleServerError(Exception e) {
