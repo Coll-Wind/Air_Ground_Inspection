@@ -8,15 +8,48 @@
       <template #header>
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span>告警列表</span>
-          <el-select v-model="filterType" placeholder="告警类型" clearable size="small" style="width:160px" @change="filterChange">
+          <el-button size="small" circle @click="doSearch">
+            <el-icon><Refresh /></el-icon>
+          </el-button>
+        </div>
+      </template>
+      <el-form :inline="true" size="small" class="filter-bar" @submit.prevent>
+        <el-form-item label="告警编号">
+          <el-input v-model="filters.alertCode" placeholder="如 17899" clearable style="width:140px" @keyup.enter="doSearch" @clear="doSearch" />
+        </el-form-item>
+        <el-form-item label="设备">
+          <el-input v-model="filters.deviceCode" placeholder="如 UAV-001" clearable style="width:130px" @keyup.enter="doSearch" @clear="doSearch" />
+        </el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="filters.type" placeholder="全部" clearable style="width:110px" @change="doSearch">
             <el-option label="过热" value="OVERHEAT" />
             <el-option label="入侵" value="INTRUSION" />
             <el-option label="烟雾" value="SMOKE" />
             <el-option label="低电量" value="LOW_BATTERY" />
             <el-option label="设备故障" value="DEVICE_FAULT" />
           </el-select>
-        </div>
-      </template>
+        </el-form-item>
+        <el-form-item label="级别">
+          <el-select v-model="filters.level" placeholder="全部" clearable style="width:100px" @change="doSearch">
+            <el-option label="高" value="HIGH" />
+            <el-option label="中" value="MEDIUM" />
+            <el-option label="低" value="LOW" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="filters.status" placeholder="全部" clearable style="width:110px" @change="doSearch">
+            <el-option label="待处理" value="PENDING" />
+            <el-option label="已处理" value="PROCESSED" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="filters.keyword" placeholder="关键词" clearable style="width:130px" @keyup.enter="doSearch" @clear="doSearch" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="doSearch">检索</el-button>
+          <el-button @click="resetFilters">重置</el-button>
+        </el-form-item>
+      </el-form>
       <el-table :data="alerts" stripe v-loading="loading">
         <el-table-column prop="alertCode" label="告警编号" width="180" />
         <el-table-column prop="deviceCode" label="设备" width="110" />
@@ -97,16 +130,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { alertApi } from '../api'
 import { ElMessage } from 'element-plus'
 
 const alerts = ref<any[]>([])
-const filterType = ref('')
 const page = ref(1)
 const pageSize = 10
 const total = ref(0)
 const loading = ref(false)
+const filters = reactive({ alertCode: '', deviceCode: '', type: '', level: '', status: '', keyword: '' })
 let ws: WebSocket
 let wsRetry: number | undefined
 
@@ -119,7 +152,12 @@ const load = async () => {
   loading.value = true
   try {
     const params: any = { page: page.value, size: pageSize }
-    if (filterType.value) params.type = filterType.value
+    if (filters.alertCode) params.alertCode = filters.alertCode
+    if (filters.deviceCode) params.deviceCode = filters.deviceCode
+    if (filters.type) params.type = filters.type
+    if (filters.level) params.level = filters.level
+    if (filters.status) params.status = filters.status
+    if (filters.keyword) params.keyword = filters.keyword
     const res = await alertApi.list(params)
     alerts.value = res.data.list || []
     total.value = res.data.total || 0
@@ -130,8 +168,14 @@ const load = async () => {
   }
 }
 
-// 切换筛选条件回到第 1 页
-const filterChange = () => { page.value = 1; load() }
+// 发起检索:回到第 1 页
+const doSearch = () => { page.value = 1; load() }
+
+// 清空全部筛选条件
+const resetFilters = () => {
+  Object.assign(filters, { alertCode: '', deviceCode: '', type: '', level: '', status: '', keyword: '' })
+  doSearch()
+}
 
 // ===== 处理告警 =====
 const handleVisible = ref(false)
@@ -188,3 +232,12 @@ onUnmounted(() => {
   ws?.close()
 })
 </script>
+
+<style scoped>
+.filter-bar {
+  margin-bottom: 6px;
+  padding: 10px 12px 0;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+</style>

@@ -17,15 +17,18 @@ public class AlertController {
     @Autowired
     private AlertService alertService;
 
-    /** 告警分页列表(按告警时间倒序,返回 {list, total}) */
+    /** 告警分页列表(按告警时间倒序,返回 {list, total}),支持多条件组合检索 */
     @GetMapping
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String deviceCode,
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false) String alertCode,
+            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ResponseEntity.ok(alertService.page(type, status, deviceCode, page, size));
+        return ResponseEntity.ok(alertService.page(type, status, deviceCode, level, alertCode, keyword, page, size));
     }
 
     /**

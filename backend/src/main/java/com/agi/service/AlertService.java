@@ -8,11 +8,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Service
 public class AlertService {
@@ -21,17 +26,30 @@ public class AlertService {
     private AlertRepository alertRepository;
     @Autowired
     private EsService esService;
+    @Autowired
+    private MongoTemplate mongoTemplate;
 
-    /** 分页查询告警(按告警时间倒序),支持类型/状态/设备过滤 */
-    public Map<String, Object> page(String type, String status, String deviceCode, int page, int size) {
-        Pageable pageable = PageRequest.of(Math.max(page - 1, 0), size,
-                Sort.by(Sort.Direction.DESC, "alertTime"));
-        Page<Alert> p;
-        if (type != null) p = alertRepository.findByAlertType(type, pageable);
-        else if (status != null) p = alertRepository.findByStatus(status, pageable);
-        else if (deviceCode != null) p = alertRepository.findByDeviceCode(deviceCode, pageable);
-        else p = alertRepository.findAll(pageable);
-        return Map.of("list", p.getContent(), "total", p.getTotalElements());
+    /**
+     * 分页查询告警(按告警时间倒序),支持多条件组合过滤:
+     * 类型/状态/设备/级别精确匹配,编号与描述关键词模糊匹配(忽略大小写)
+     */
+    public Map<String, Object> page(String type, String status, String deviceCode, String level,
+                                    String alertCode, String keyword, int page, int size) {
+        List<Criteria> parts = new ArrayList<>();
+        if (type != null && !type.isEmpty()) parts.add(Criteria.where("alertType").is(type));
+        if (status != null && !status.isEmpty()) parts.add(Criteria.where("status").is(status));
+        if (deviceCode != null && !deviceCode.isEmpty()) parts.add(Criteria.where("deviceCode").regex(Pattern.quote(deviceCode), "i"));
+        if (level != null && !level.isEmpty()) parts.add(Criteria.where("level").is(level));
+        if (alertCode != null && !alertCode.isEmpty()) parts.add(Criteria.where("alertCode").regex(Pattern.quote(alertCode), "i"));
+        if (keyword != null && !keyword.isEmpty()) parts.add(Criteria.where("description").regex(Pattern.quote(keyword), "i"));
+
+        Query query = parts.isEmpty() ? new Query(new Criteria()) : new Query(new Criteria().andOperator(parts));
+        long total = mongoTemplate.count(query, Alert.class);
+        query.with(Sort.by(Sort.Direction.DESC, "alertTime"))
+                .skip((long) Math.max(page - 1, 0) * size)
+                .limit(size);
+        List<Alert> list = mongoTemplate.find(query, Alert.class);
+        return Map.of("list", list, "total", total);
     }
 
     public List<Alert> listByStatus(String status) {
