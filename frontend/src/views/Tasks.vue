@@ -39,7 +39,7 @@
 
     <el-card shadow="hover">
       <template #header><span>任务列表</span></template>
-      <el-table :data="tasks" stripe>
+      <el-table :data="tasks" stripe v-loading="loading">
         <el-table-column prop="taskCode" label="任务编号" width="180" />
         <el-table-column prop="name" label="任务名称" width="140" />
         <el-table-column prop="deviceCode" label="目标设备" width="110" />
@@ -60,35 +60,74 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="loadTasks"
+        style="margin-top:12px;justify-content:flex-end"
+      />
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { taskApi, deviceApi } from '../api'
 import { ElMessage } from 'element-plus'
 
 const devices = ref<any[]>([])
 const tasks = ref<any[]>([])
 const form = ref({ deviceCode: '', taskType: 'PATROL', area: '', latitude: 39.9042, longitude: 116.4074, description: '' })
+const page = ref(1)
+const pageSize = 10
+const total = ref(0)
+const loading = ref(false)
+let refreshTimer: number | undefined
 
 const typeLabel = (t: string) => ({ PATROL: '巡逻', INSPECT: '巡检', ALERT_CHECK: '告警复核' }[t] || t)
 const statusLabel = (s: string) => ({ PENDING: '待执行', RUNNING: '执行中', COMPLETED: '已完成', FAILED: '失败' }[s] || s)
 const statusType = (s: string) => ({ PENDING: 'info', RUNNING: 'warning', COMPLETED: 'success', FAILED: 'danger' }[s] || '')
 
 const loadDevices = async () => { const r = await deviceApi.list(); devices.value = r.data || [] }
-const loadTasks = async () => { const r = await taskApi.list(); tasks.value = r.data || [] }
+
+const loadTasks = async () => {
+  loading.value = true
+  try {
+    const r = await taskApi.list({ page: page.value, size: pageSize })
+    tasks.value = r.data.list || []
+    total.value = r.data.total || 0
+  } catch {
+    // 错误提示由 axios 拦截器统一处理
+  } finally {
+    loading.value = false
+  }
+}
 
 const submit = async () => {
   if (!form.value.deviceCode) { ElMessage.warning('请选择设备'); return }
   await taskApi.create(form.value)
   ElMessage.success('任务已下发')
   form.value = { deviceCode: '', taskType: 'PATROL', area: '', latitude: 39.9042, longitude: 116.4074, description: '' }
+  page.value = 1
   loadTasks()
 }
 
-const complete = async (code: string) => { await taskApi.complete(code); loadTasks() }
+const complete = async (code: string) => {
+  try {
+    await taskApi.complete(code)
+    ElMessage.success('任务已完成')
+    loadTasks()
+  } catch {
+    // 状态机校验失败(如任务非执行中)由拦截器提示
+  }
+}
 
-onMounted(() => { loadDevices(); loadTasks(); setInterval(loadTasks, 5000) })
+onMounted(() => {
+  loadDevices()
+  loadTasks()
+  refreshTimer = window.setInterval(loadTasks, 5000)
+})
+onUnmounted(() => window.clearInterval(refreshTimer))
 </script>

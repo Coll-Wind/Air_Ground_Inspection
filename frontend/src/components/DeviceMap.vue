@@ -97,8 +97,8 @@ async function loadDevices() {
 async function loadTracks() {
   for (const code of deviceMarkers.keys()) {
     try {
-      const res = await recordApi.list({ deviceCode: code })
-      const records = (res.data || [])
+      const res = await recordApi.list({ deviceCode: code, page: 1, size: 50 })
+      const records = (res.data.list || [])
         .filter((r: any) => r.latitude != null && r.longitude != null)
         .sort((a: any, b: any) => (a.reportTime < b.reportTime ? -1 : 1))
         .slice(-TRACK_LEN)
@@ -119,8 +119,8 @@ async function loadTracks() {
 /** 拉取待处理告警,红色标记 */
 async function loadAlerts() {
   try {
-    const res = await alertApi.list()
-    const pending = (res.data || []).filter((a: any) => a.status === 'PENDING' && a.latitude != null)
+    const res = await alertApi.list({ status: 'PENDING', page: 1, size: 500 })
+    const pending = (res.data.list || []).filter((a: any) => a.latitude != null)
     const codes = new Set(pending.map((a: any) => a.alertCode))
     // 移除已不在列表中的旧告警标记
     for (const [code, m] of alertMarkers) {

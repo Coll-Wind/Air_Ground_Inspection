@@ -4,6 +4,10 @@ import com.agi.kafka.KafkaProducerService;
 import com.agi.model.InspectionTask;
 import com.agi.repository.TaskRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -44,16 +48,15 @@ public class TaskService {
         return saved;
     }
 
-    public List<InspectionTask> listAll() {
-        return taskRepository.findAll();
-    }
-
-    public List<InspectionTask> listByStatus(String status) {
-        return taskRepository.findByStatus(status);
-    }
-
-    public List<InspectionTask> listByDevice(String deviceCode) {
-        return taskRepository.findByDeviceCode(deviceCode);
+    /** 分页查询任务(按创建时间倒序),支持状态/设备过滤 */
+    public Map<String, Object> page(String status, String deviceCode, int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(page - 1, 0), size,
+                Sort.by(Sort.Direction.DESC, "createTime"));
+        Page<InspectionTask> p;
+        if (status != null) p = taskRepository.findByStatus(status, pageable);
+        else if (deviceCode != null) p = taskRepository.findByDeviceCode(deviceCode, pageable);
+        else p = taskRepository.findAll(pageable);
+        return Map.of("list", p.getContent(), "total", p.getTotalElements());
     }
 
     /**
@@ -61,6 +64,10 @@ public class TaskService {
      */
     public InspectionTask complete(String taskCode) {
         return taskRepository.findByTaskCode(taskCode).map(task -> {
+            // 状态机校验:仅 RUNNING 状态允许标记完成
+            if (!"RUNNING".equals(task.getStatus())) {
+                throw new IllegalArgumentException("任务 " + taskCode + " 当前状态为 " + task.getStatus() + ",不允许标记完成");
+            }
             task.setStatus("COMPLETED");
             task.setCompleteTime(LocalDateTime.now());
             return taskRepository.save(task);

@@ -6,7 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -16,14 +16,14 @@ public class TaskController {
     @Autowired
     private TaskService taskService;
 
-    /** 任务列表(可按状态/设备筛选) */
+    /** 任务分页列表(按创建时间倒序,返回 {list, total}) */
     @GetMapping
-    public ResponseEntity<List<InspectionTask>> list(
+    public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String deviceCode) {
-        if (status != null) return ResponseEntity.ok(taskService.listByStatus(status));
-        if (deviceCode != null) return ResponseEntity.ok(taskService.listByDevice(deviceCode));
-        return ResponseEntity.ok(taskService.listAll());
+            @RequestParam(required = false) String deviceCode,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(taskService.page(status, deviceCode, page, size));
     }
 
     /** 创建并下发巡检任务 */

@@ -1,12 +1,18 @@
 <template>
-  <el-container class="layout">
+  <!-- 公开页(登录)不套主布局 -->
+  <router-view v-if="isPublic" />
+  <el-container v-else class="layout">
     <el-header class="header">
       <div class="logo">
         <el-icon :size="24"><Monitor /></el-icon>
         <span>无人机-机器狗空地协同巡检集成平台</span>
       </div>
       <div class="header-right">
-        <el-tag type="success" effect="dark">园区安防模式</el-tag>
+        <span class="user-name">
+          <el-icon><User /></el-icon>
+          {{ username }}
+        </span>
+        <el-button size="small" text style="color:#fff" @click="logout">退出登录</el-button>
       </div>
     </el-header>
     <el-container>
@@ -47,9 +53,18 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 const route = useRoute()
+const router = useRouter()
 const activeMenu = computed(() => route.path)
+const isPublic = computed(() => !!route.meta.public)
+const username = computed(() => localStorage.getItem('username') || 'admin')
+
+const logout = () => {
+  localStorage.removeItem('token')
+  localStorage.removeItem('username')
+  router.push('/login')
+}
 </script>
 
 <style>

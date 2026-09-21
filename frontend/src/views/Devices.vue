@@ -17,7 +17,7 @@
           </div>
         </div>
       </template>
-      <el-table :data="devices" stripe>
+      <el-table :data="devices" stripe v-loading="loading">
         <el-table-column prop="deviceCode" label="设备编号" width="120" />
         <el-table-column prop="name" label="名称" width="160" />
         <el-table-column prop="deviceType" label="类型" width="100">
@@ -50,23 +50,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { deviceApi } from '../api'
 
 const devices = ref<any[]>([])
 const filterType = ref('')
 const filterStatus = ref('')
+const loading = ref(false)
+let refreshTimer: number | undefined
 
 const load = async () => {
-  const params: any = {}
-  if (filterType.value) params.type = filterType.value
-  if (filterStatus.value) params.status = filterStatus.value
-  const res = await deviceApi.list(params)
-  devices.value = res.data || []
+  loading.value = true
+  try {
+    const params: any = {}
+    if (filterType.value) params.type = filterType.value
+    if (filterStatus.value) params.status = filterStatus.value
+    const res = await deviceApi.list(params)
+    devices.value = res.data || []
+  } catch {
+    // 错误提示由 axios 拦截器统一处理
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {
   load()
-  setInterval(load, 5000)
+  refreshTimer = window.setInterval(load, 5000)
 })
+onUnmounted(() => window.clearInterval(refreshTimer))
 </script>

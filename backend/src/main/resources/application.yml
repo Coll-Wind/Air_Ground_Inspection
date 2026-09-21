@@ -1,7 +1,16 @@
 server:
-  port: 8080
+  port: 8081
   servlet:
     context-path: /
+
+# 登录认证配置(JWT)
+auth:
+  username: admin
+  password: admin123
+  # HS256 密钥,长度需 >= 32 字节,生产环境请更换
+  secret: agi-inspection-jwt-secret-key-2026-campus-security-platform
+  # token 有效期(小时)
+  expire-hours: 12
 
 spring:
   application:

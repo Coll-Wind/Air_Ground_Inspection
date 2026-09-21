@@ -41,8 +41,8 @@
     </el-card>
 
     <el-card shadow="hover">
-      <template #header><span>检索结果 ({{ results.length }} 条)</span></template>
-      <el-table :data="results" stripe>
+      <template #header><span>检索结果 (共 {{ total }} 条)</span></template>
+      <el-table :data="results" stripe v-loading="loading">
         <el-table-column prop="alertCode" label="告警编号" width="180" />
         <el-table-column prop="deviceCode" label="设备" width="110" />
         <el-table-column prop="alertType" label="类型" width="120">
@@ -56,6 +56,14 @@
         </el-table-column>
         <el-table-column prop="alertTime" label="时间" width="180" />
       </el-table>
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="doSearch"
+        style="margin-top:12px;justify-content:flex-end"
+      />
     </el-card>
   </div>
 </template>
@@ -67,21 +75,40 @@ import { alertApi } from '../api'
 const form = ref({ deviceCode: '', alertType: '', level: '', status: '' })
 const geoForm = ref({ lat: 39.9042, lon: 116.4074, distance: 5 })
 const results = ref<any[]>([])
+const page = ref(1)
+const pageSize = 10
+const total = ref(0)
+const loading = ref(false)
+// 记住当前检索模式,翻页时按同一模式查询
+let lastMode: 'search' | 'geo' = 'search'
 
 const typeLabel = (t: string) => ({
   OVERHEAT: '过热', INTRUSION: '入侵', SMOKE: '烟雾',
   LOW_BATTERY: '低电量', DEVICE_FAULT: '设备故障'
 }[t] || t)
 
-const search = async () => {
-  const res = await alertApi.search(form.value)
-  results.value = res.data || []
+// 按当前模式与页码执行检索
+const doSearch = async () => {
+  loading.value = true
+  try {
+    let res
+    if (lastMode === 'search') {
+      res = await alertApi.search({ ...form.value, page: page.value, size: pageSize })
+    } else {
+      res = await alertApi.geoSearch({ ...geoForm.value })
+    }
+    results.value = res.data.list || []
+    total.value = res.data.total || 0
+  } catch {
+    // 错误提示由 axios 拦截器统一处理
+  } finally {
+    loading.value = false
+  }
 }
 
-const geoSearch = async () => {
-  const res = await alertApi.geoSearch(geoForm.value)
-  results.value = res.data || []
-}
+// 发起新检索:回到第 1 页
+const search = () => { page.value = 1; lastMode = 'search'; doSearch() }
+const geoSearch = () => { page.value = 1; lastMode = 'geo'; doSearch() }
 
 // 进入页面时自动加载全部告警数据
 onMounted(() => {

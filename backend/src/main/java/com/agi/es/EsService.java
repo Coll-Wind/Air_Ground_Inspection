@@ -77,10 +77,11 @@ public class EsService {
     }
 
     /**
-     * 多条件检索告警
+     * 多条件检索告警(分页,按告警时间倒序)
+     * @return {list: 命中文档列表, total: 命中总数}
      */
-    public List<Map<String, Object>> searchAlerts(String deviceCode, String alertType,
-                                                  String level, String status) throws IOException {
+    public Map<String, Object> searchAlerts(String deviceCode, String alertType,
+                                            String level, String status, int page, int size) throws IOException {
         List<Query> mustQueries = new ArrayList<>();
 
         if (deviceCode != null && !deviceCode.isEmpty()) {
@@ -103,7 +104,8 @@ public class EsService {
         SearchResponse<Map> response = esClient.search(s -> s
                         .index(ALERT_INDEX)
                         .query(finalQuery)
-                        .size(100)
+                        .from(Math.max(page - 1, 0) * size)
+                        .size(size)
                         .sort(sort -> sort.field(f -> f.field("alertTime").order(co.elastic.clients.elasticsearch._types.SortOrder.Desc))),
                 Map.class);
 
@@ -111,27 +113,29 @@ public class EsService {
         for (Hit<Map> hit : response.hits().hits()) {
             result.add(hit.source());
         }
-        return result;
+        long total = response.hits().total() != null ? response.hits().total().value() : result.size();
+        return Map.of("list", result, "total", total);
     }
 
     /**
      * 地理范围检索:查询指定经纬度周围指定半径内的告警
+     * @return {list, total}
      */
-    public List<Map<String, Object>> searchByGeo(Double lat, Double lon, String distanceKm) throws IOException {
+    public Map<String, Object> searchByGeo(Double lat, Double lon, String distanceKm) throws IOException {
         SearchResponse<Map> response = esClient.search(s -> s
                         .index(ALERT_INDEX)
                         .query(q -> q.geoDistance(g -> g
                                 .field("location")
                                 .distance(distanceKm + "km")
                                 .location(GeoLocation.of(l -> l.latlon(ll -> ll.lat(lat).lon(lon))))))
-                        .size(50),
+                        .size(200),
                 Map.class);
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (Hit<Map> hit : response.hits().hits()) {
             result.add(hit.source());
         }
-        return result;
+        return Map.of("list", result, "total", (long) result.size());
     }
 
     /**

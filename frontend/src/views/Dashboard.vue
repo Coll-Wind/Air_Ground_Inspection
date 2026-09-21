@@ -94,9 +94,26 @@ const loadAggregate = async () => {
 
 const loadRecentAlerts = async () => {
   try {
-    const res = await alertApi.list()
-    recentAlerts.value = (res.data || []).slice(0, 10)
+    const res = await alertApi.list({ page: 1, size: 10 })
+    recentAlerts.value = res.data.list || []
   } catch {}
+}
+
+let refreshTimer: number | undefined
+let wsRetry: number | undefined
+let closed = false
+
+// WebSocket 实时告警推送(断线自动重连)
+const connectWs = () => {
+  ws = new WebSocket(`ws://${location.host}/ws/alerts`)
+  ws.onmessage = (e) => {
+    const alert = JSON.parse(e.data)
+    recentAlerts.value.unshift(alert)
+    if (recentAlerts.value.length > 10) recentAlerts.value.pop()
+  }
+  ws.onclose = () => {
+    if (!closed) wsRetry = window.setTimeout(connectWs, 3000)
+  }
 }
 
 onMounted(() => {
@@ -106,16 +123,17 @@ onMounted(() => {
   loadAggregate()
   loadRecentAlerts()
   // 定时刷新
-  const timer = setInterval(() => { loadStats(); loadAggregate(); loadRecentAlerts() }, 10000)
-  onUnmounted(() => clearInterval(timer))
-  // WebSocket 实时告警推送
-  const wsUrl = `ws://${location.host}/ws/alerts`
-  ws = new WebSocket(wsUrl)
-  ws.onmessage = (e) => {
-    const alert = JSON.parse(e.data)
-    recentAlerts.value.unshift(alert)
-    if (recentAlerts.value.length > 10) recentAlerts.value.pop()
-  }
+  refreshTimer = window.setInterval(() => { loadStats(); loadAggregate(); loadRecentAlerts() }, 10000)
+  connectWs()
+})
+
+onUnmounted(() => {
+  closed = true
+  window.clearInterval(refreshTimer)
+  window.clearTimeout(wsRetry)
+  ws?.close()
+  pieChart?.dispose()
+  barChart?.dispose()
 })
 </script>
 

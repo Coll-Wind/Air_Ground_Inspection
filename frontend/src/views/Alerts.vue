@@ -8,7 +8,7 @@
       <template #header>
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span>告警列表</span>
-          <el-select v-model="filterType" placeholder="告警类型" clearable size="small" style="width:160px" @change="load">
+          <el-select v-model="filterType" placeholder="告警类型" clearable size="small" style="width:160px" @change="filterChange">
             <el-option label="过热" value="OVERHEAT" />
             <el-option label="入侵" value="INTRUSION" />
             <el-option label="烟雾" value="SMOKE" />
@@ -17,7 +17,7 @@
           </el-select>
         </div>
       </template>
-      <el-table :data="alerts" stripe>
+      <el-table :data="alerts" stripe v-loading="loading">
         <el-table-column prop="alertCode" label="告警编号" width="180" />
         <el-table-column prop="deviceCode" label="设备" width="110" />
         <el-table-column prop="alertType" label="类型" width="120">
@@ -43,6 +43,14 @@
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-model:current-page="page"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="load"
+        style="margin-top:12px;justify-content:flex-end"
+      />
     </el-card>
   </div>
 </template>
@@ -54,7 +62,12 @@ import { ElMessage } from 'element-plus'
 
 const alerts = ref<any[]>([])
 const filterType = ref('')
+const page = ref(1)
+const pageSize = 10
+const total = ref(0)
+const loading = ref(false)
 let ws: WebSocket
+let wsRetry: number | undefined
 
 const typeLabel = (t: string) => ({
   OVERHEAT: '过热', INTRUSION: '入侵', SMOKE: '烟雾',
@@ -62,11 +75,22 @@ const typeLabel = (t: string) => ({
 }[t] || t)
 
 const load = async () => {
-  const params: any = {}
-  if (filterType.value) params.type = filterType.value
-  const res = await alertApi.list(params)
-  alerts.value = res.data || []
+  loading.value = true
+  try {
+    const params: any = { page: page.value, size: pageSize }
+    if (filterType.value) params.type = filterType.value
+    const res = await alertApi.list(params)
+    alerts.value = res.data.list || []
+    total.value = res.data.total || 0
+  } catch {
+    // 错误提示由 axios 拦截器统一处理
+  } finally {
+    loading.value = false
+  }
 }
+
+// 切换筛选条件回到第 1 页
+const filterChange = () => { page.value = 1; load() }
 
 const handle = async (row: any) => {
   await alertApi.updateStatus(row.id, 'PROCESSED')
@@ -74,16 +98,24 @@ const handle = async (row: any) => {
   load()
 }
 
-onMounted(() => {
-  load()
-  setInterval(load, 8000)
-  // WebSocket 实时告警
+// WebSocket 实时告警(断线自动重连)
+const connectWs = () => {
   ws = new WebSocket(`ws://${location.host}/ws/alerts`)
   ws.onmessage = (e) => {
     const alert = JSON.parse(e.data)
     alerts.value.unshift(alert)
+    total.value++
     ElMessage.warning(`新告警: ${typeLabel(alert.alertType)} - ${alert.deviceCode}`)
   }
+  ws.onclose = () => { wsRetry = window.setTimeout(connectWs, 3000) }
+}
+
+onMounted(() => {
+  load()
+  connectWs()
 })
-onUnmounted(() => ws?.close())
+onUnmounted(() => {
+  window.clearTimeout(wsRetry)
+  ws?.close()
+})
 </script>

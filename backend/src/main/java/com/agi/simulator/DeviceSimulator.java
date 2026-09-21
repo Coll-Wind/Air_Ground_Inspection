@@ -129,7 +129,11 @@ public class DeviceSimulator {
         List<DeviceState> list = new ArrayList<>(devices.values());
         DeviceState ds = list.get(random.nextInt(list.size()));
 
+        // 告警类型随机,但必须与设备真实状态自洽:电量 > 30% 时不会触发低电量告警
         String alertType = ALERT_TYPES[random.nextInt(ALERT_TYPES.length)];
+        while ("LOW_BATTERY".equals(alertType) && ds.battery > 30) {
+            alertType = ALERT_TYPES[random.nextInt(ALERT_TYPES.length)];
+        }
         String level = "LOW_BATTERY".equals(alertType) ? "MEDIUM" : ALERT_LEVELS[random.nextInt(ALERT_LEVELS.length)];
 
         Map<String, Object> msg = baseMessage(ds);

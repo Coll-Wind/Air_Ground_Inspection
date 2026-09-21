@@ -8,7 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/records")
@@ -18,14 +18,14 @@ public class InspectionRecordController {
     @Autowired
     private InspectionRecordService recordService;
 
-    /** 巡检记录列表 */
+    /** 巡检记录分页列表(按上报时间倒序,返回 {list, total}) */
     @GetMapping
-    public ResponseEntity<List<InspectionRecord>> list(
+    public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) String deviceCode,
-            @RequestParam(required = false) String deviceType) {
-        if (deviceCode != null) return ResponseEntity.ok(recordService.listByDevice(deviceCode));
-        if (deviceType != null) return ResponseEntity.ok(recordService.listByType(deviceType));
-        return ResponseEntity.ok(recordService.listAll());
+            @RequestParam(required = false) String deviceType,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(recordService.page(deviceCode, deviceType, page, size));
     }
 
     /** 下载 HDFS 巡检图片 */
